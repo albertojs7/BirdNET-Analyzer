@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg  && rm -
 COPY . ./
 
 # Install required Python packages
-RUN pip3 install --no-cache-dir .
+RUN pip3 install --no-cache-dir . \
+	librosa numpy soundfile tqdm requests matplotlib scipy absl-py tensorflow
 
 # Add entry point to run the script
-ENTRYPOINT [ "python3" ]
-CMD [ "-m", "birdnet_analyzer.analyze" ]
+ENTRYPOINT [ "python3", "-m", "birdnet_analyzer.analyze" ]
