@@ -62,7 +62,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "message": "Analizando..."
                 }))
                 
-                results = ahfile(temp_path)
+                results = analyze_audio_file(temp_path)
                 os.unlink(temp_path)
                 
                 # Enviar resultados
