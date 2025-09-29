@@ -4,15 +4,269 @@ Controlador WebSocket - Capa de interfaces
 import json
 import base64
 import logging
-import uuid
-from datetime import datetime
 from typing import Dict, Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from application.use_cases import AnalyzeAudioUseCase, GetAnalysisStatusUseCase, HealthCheckUseCase
 from application.streaming_use_cases import StreamingAnalysisUseCase, StreamingHealthCheckUseCase
 from infrastructure.websocket.notification_service import WebSocketNotificationService
-from infrastructure.database.mongodb_adapter import mongodb_adapter
+import asyncio
+import time
+
+logger = logging.getLogger(__name__)
+
+class WebSocketController:
+        """Iniciar sesión de análisis en tiempo real"""
+        try:
+            import uuid
+            import time
+            
+            session_id = str(uuid.uuid4())
+            min_confidence = message.get("min_confidence", 0.3)  # Confianza más alta para tiempo real
+            
+            # Guardar sesión
+            self.real_time_sessions[session_id] = {
+                'websocket': websocket,
+                'created_at': time.time(),
+                'last_detection': time.time(),
+                'detection_history': [],
+                'min_confidence': min_confidence,
+                'chunk_count': 0,
+                'total_detections': 0
+            }
+            
+            logger.info(f"Sesión de tiempo real iniciada: {session_id} (confianza: {min_confidence})")
+            
+            await websocket.send_text(json.dumps({
+                "type": "real_time_session_started",
+                "session_id": session_id,
+                "min_confidence": min_confidence,
+                "message": "Escucha en tiempo real iniciada - Envía chunks de audio cada 2 segundos"
+            }))
+            
+        except Exception as e:
+            logger.error(f"Error iniciando tiempo real: {e}")
+            await self._send_error(websocket, f"Error iniciando tiempo real: {e}")
+    
+    async def _handle_send_real_time_audio(self, websocket: WebSocket, message: Dict[str, Any]):
+        """Procesar chunk de audio en tiempo real con pipeline asíncrono"""
+        try:
+            # Validar campos requeridos
+            if "session_id" not in message or "audio" not in message:
+                await self._send_error(websocket, "Campos 'session_id' y 'audio' requeridos")
+                return
+            
+            session_id = message["session_id"]
+            timestamp = message.get("timestamp", int(time.time() * 1000))
+            
+            # Verificar que la sesión existe
+            if session_id not in self.real_time_sessions:
+                await self._send_error(websocket, f"Sesión no encontrada: {session_id}")
+                return
+            
+            session = self.real_time_sessions[session_id]
+            session['chunk_count'] += 1
+            
+            # Decodificar audio
+            try:
+                audio_base64 = message["audio"]
+                audio_data = base64.b64decode(audio_base64)
+            except Exception as e:
+                await self._send_error(websocket, f"Error decodificando audio Base64: {e}")
+                return
+            
+            # RESPUESTA INMEDIATA (sin esperar análisis)
+            queue_size = len(self.analysis_tasks)
+            await websocket.send_text(json.dumps({
+                "type": "real_time_chunk_received",
+                "session_id": session_id,
+                "timestamp": timestamp,
+                "chunk_number": session['chunk_count'],
+                "queue_size": queue_size,
+                "audio_size_bytes": len(audio_data),
+                "message": "Chunk recibido, analizando en segundo plano..."
+            }))
+            
+            # ANÁLISIS EN BACKGROUND (no await)
+            analysis_task = asyncio.create_task(
+                self._process_real_time_audio_async(session_id, audio_data, timestamp, websocket)
+            )
+            self.analysis_tasks[timestamp] = analysis_task
+            
+            logger.debug(f"Chunk {session['chunk_count']} de sesión {session_id} en cola para análisis")
+            
+        except Exception as e:
+            logger.error(f"Error procesando audio tiempo real: {e}")
+            await self._send_error(websocket, f"Error procesando audio: {e}")
+    
+    async def _process_real_time_audio_async(self, session_id: str, audio_data: bytes, 
+                                           timestamp: int, websocket: WebSocket):
+        """Procesar audio en background y notificar cuando termine"""
+        try:
+            import time
+            start_time = time.time()
+            
+            # REUTILIZAR tu código actual de análisis
+            analysis = await self.analyze_audio_use_case.execute(
+                audio_data, 
+                f"real_time_{timestamp}.wav"
+            )
+            
+            processing_time = time.time() - start_time
+            session = self.real_time_sessions.get(session_id)
+            
+            if not session:
+                logger.warning(f"Sesión {session_id} no existe al completar análisis")
+                return
+            
+            # Filtrar por confianza de la sesión
+            min_confidence = session['min_confidence']
+            filtered_detections = [
+                d for d in analysis.detections 
+                if d.confidence >= min_confidence
+            ]
+            
+            # Filtrar detecciones recientes para evitar duplicados
+            new_detections = self._filter_recent_detections(
+                filtered_detections, 
+                session['detection_history']
+            )
+            
+            # Actualizar estadísticas de sesión
+            session['total_detections'] += len(new_detections)
+            session['last_detection'] = time.time()
+            
+            # Enviar resultado cuando termine
+            if new_detections:
+                await websocket.send_text(json.dumps({
+                    "type": "real_time_detections",
+                    "session_id": session_id,
+                    "analysis_timestamp": timestamp,
+                    "processing_time_seconds": round(processing_time, 2),
+                    "total_detections_found": len(analysis.detections),
+                    "filtered_by_confidence": len(filtered_detections),
+                    "new_detections": len(new_detections),
+                    "birds": [
+                        {
+                            "species_name": d.species_name,
+                            "species_code": d.species_code,
+                            "confidence": round(d.confidence, 3),
+                            "start_time": round(d.start_time, 1),
+                            "end_time": round(d.end_time, 1),
+                            "detected_at": timestamp,
+                            "is_new": True
+                        } for d in new_detections
+                    ]
+                }))
+                
+                # Guardar en historial
+                session['detection_history'].extend(new_detections)
+                
+                logger.info(f"Sesión {session_id}: {len(new_detections)} nuevas detecciones "
+                          f"(procesamiento: {processing_time:.2f}s)")
+            else:
+                # Enviar confirmación aunque no haya detecciones
+                await websocket.send_text(json.dumps({
+                    "type": "real_time_analysis_completed",
+                    "session_id": session_id,
+                    "analysis_timestamp": timestamp,
+                    "processing_time_seconds": round(processing_time, 2),
+                    "total_detections_found": len(analysis.detections),
+                    "message": f"Sin nuevas detecciones (confianza < {min_confidence})"
+                }))
+                
+        except Exception as e:
+            logger.error(f"Error en análisis asíncrono sesión {session_id}: {e}")
+            try:
+                await websocket.send_text(json.dumps({
+                    "type": "real_time_analysis_error",
+                    "session_id": session_id,
+                    "timestamp": timestamp,
+                    "error": str(e)
+                }))
+            except:
+                logger.error(f"No se pudo notificar error de análisis a sesión {session_id}")
+                
+        finally:
+            # Limpiar task completada
+            self.analysis_tasks.pop(timestamp, None)
+    
+    async def _handle_stop_real_time_listening(self, websocket: WebSocket, message: Dict[str, Any]):
+        """Finalizar sesión de tiempo real"""
+        try:
+            session_id = message.get("session_id")
+            
+            if session_id and session_id in self.real_time_sessions:
+                session = self.real_time_sessions[session_id]
+                
+                # Cancelar tasks pendientes para esta sesión
+                pending_tasks = [
+                    task for timestamp, task in self.analysis_tasks.items()
+                    if not task.done()
+                ]
+                
+                for task in pending_tasks:
+                    task.cancel()
+                
+                # Estadísticas finales
+                duration = time.time() - session['created_at']
+                
+                # Eliminar sesión
+                del self.real_time_sessions[session_id]
+                
+                await websocket.send_text(json.dumps({
+                    "type": "real_time_session_ended",
+                    "session_id": session_id,
+                    "session_stats": {
+                        "duration_seconds": round(duration, 1),
+                        "total_chunks_processed": session['chunk_count'],
+                        "total_detections": session['total_detections'],
+                        "pending_tasks_cancelled": len(pending_tasks)
+                    },
+                    "message": "Sesión de tiempo real finalizada"
+                }))
+                
+                logger.info(f"Sesión tiempo real {session_id} finalizada: "
+                          f"{session['chunk_count']} chunks, {session['total_detections']} detecciones")
+            else:
+                await self._send_error(websocket, f"Sesión no encontrada: {session_id}")
+        
+        except Exception as e:
+            logger.error(f"Error finalizando tiempo real: {e}")
+            await self._send_error(websocket, f"Error finalizando tiempo real: {e}")
+    
+    def _filter_recent_detections(self, new_detections, history, time_window=10.0):
+        """Filtrar detecciones que ya aparecieron recientemente"""
+        import time
+        
+        current_time = time.time()
+        filtered = []
+        
+        for detection in new_detections:
+            # Verificar si esta especie ya fue detectada recientemente
+            is_recent = any(
+                h.species_code == detection.species_code and 
+                (current_time - getattr(h, 'detected_at', 0)) < time_window
+                for h in history[-20:]  # Solo revisar últimas 20 detecciones
+            )
+            
+            if not is_recent:
+                # Agregar timestamp de detección
+                detection.detected_at = current_time
+                filtered.append(detection)
+        
+        return filtered
+    
+    async def _send_error(self, websocket: WebSocket, error_message: str):
+        """Enviar mensaje de error"""
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "error": error_message
+            }))
+        except Exception as e:
+            logger.error(f"Error enviando mensaje de error: {e}")AnalysisUseCase, StreamingHealthCheckUseCase
+from infrastructure.websocket.notification_service import WebSocketNotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +289,7 @@ class WebSocketController:
         self.streaming_health_check_use_case = streaming_health_check_use_case
         self.notification_service = notification_service
         
-        # Storage para sesiones de tiempo real
+        # NUEVO: Storage para sesiones de tiempo real
         self.real_time_sessions = {}  # session_id -> session_data
         self.analysis_tasks = {}      # timestamp -> asyncio.Task
     
@@ -317,293 +571,6 @@ class WebSocketController:
         except Exception as e:
             logger.error(f"Error en streaming health check: {e}")
             await self._send_error(websocket, f"Error en streaming health check: {e}")
-    
-    # === MÉTODOS DE TIEMPO REAL ===
-    async def _handle_start_real_time_listening(self, websocket: WebSocket, message: Dict[str, Any]):
-        """Iniciar sesión de análisis en tiempo real"""
-        try:
-            import time
-            
-            session_id = str(uuid.uuid4())
-            
-            # Crear sesión en MongoDB
-            try:
-                await mongodb_adapter.create_session(session_id, {
-                    "session_type": "real_time",
-                    "client_info": message.get("client_info", {}),
-                    "config": {
-                        "recommended_chunk_duration": 2.0,
-                        "recommended_overlap": 0.5,
-                        "max_latency_expected": "2-5 segundos"
-                    }
-                })
-                logger.info(f"✅ Sesión MongoDB creada: {session_id}")
-            except Exception as db_error:
-                logger.warning(f"⚠️ Error creando sesión en DB: {db_error}")
-                # Continuar sin DB si hay error
-            
-            # Guardar sesión en memoria
-            self.real_time_sessions[session_id] = {
-                'websocket': websocket,
-                'created_at': time.time(),
-                'last_detection': time.time(),
-                'detection_history': [],
-                'total_chunks_received': 0,
-                'total_detections': 0,
-                'db_session_created': True
-            }
-            
-            logger.info(f"Sesión de tiempo real iniciada: {session_id}")
-            
-            await websocket.send_text(json.dumps({
-                "type": "real_time_session_started",
-                "session_id": session_id,
-                "message": "Escucha en tiempo real iniciada",
-                "config": {
-                    "recommended_chunk_duration": 2.0,
-                    "recommended_overlap": 0.5,
-                    "max_latency_expected": "2-5 segundos"
-                }
-            }))
-            
-        except Exception as e:
-            logger.error(f"Error iniciando tiempo real: {e}")
-            await self._send_error(websocket, f"Error iniciando tiempo real: {e}")
-    
-    async def _handle_send_real_time_audio(self, websocket: WebSocket, message: Dict[str, Any]):
-        """Procesar chunk de audio en tiempo real con pipeline asíncrono"""
-        try:
-            # Validar campos requeridos
-            if "session_id" not in message or "audio" not in message:
-                await self._send_error(websocket, "Campos 'session_id' y 'audio' requeridos")
-                return
-            
-            session_id = message["session_id"]
-            timestamp = message.get("timestamp", 0)
-            
-            # Verificar que la sesión existe
-            if session_id not in self.real_time_sessions:
-                await self._send_error(websocket, f"Sesión no encontrada: {session_id}")
-                return
-            
-            session = self.real_time_sessions[session_id]
-            session['total_chunks_received'] += 1
-            
-            import time
-            session['last_activity'] = time.time()
-            
-            # RESPUESTA INMEDIATA - No esperar análisis
-            await websocket.send_text(json.dumps({
-                "type": "chunk_received",
-                "session_id": session_id,
-                "timestamp": timestamp,
-                "queue_position": len(self.analysis_tasks),
-                "message": "Chunk recibido, analizando..."
-            }))
-            
-            # ANÁLISIS EN BACKGROUND - Pipeline asíncrono
-            import asyncio
-            task = asyncio.create_task(
-                self._process_real_time_audio_async(session_id, message, websocket)
-            )
-            self.analysis_tasks[timestamp] = task
-            
-            logger.debug(f"Chunk tiempo real recibido para sesión {session_id} (timestamp: {timestamp})")
-            
-        except Exception as e:
-            logger.error(f"Error procesando audio tiempo real: {e}")
-            await self._send_error(websocket, f"Error procesando audio: {e}")
-    
-    async def _process_real_time_audio_async(self, session_id: str, message: Dict[str, Any], websocket: WebSocket):
-        """Procesar audio en background y notificar cuando termine"""
-        timestamp = message.get("timestamp", 0)
-        
-        try:
-            import time
-            processing_start = time.time()
-            
-            # Decodificar audio
-            audio_base64 = message["audio"]
-            audio_data = base64.b64decode(audio_base64)
-            
-            logger.debug(f"Iniciando análisis de chunk {timestamp} ({len(audio_data)} bytes)")
-            
-            # ANÁLISIS DIRECTO sin usar el caso de uso tradicional (que envía notificaciones)
-            # Llamar directamente al adaptador BirdNET
-            detections = await self.analyze_audio_use_case.audio_analyzer.analyze_audio(
-                audio_data, 
-                f"real_time_{session_id}_{timestamp}.wav"
-            )
-            
-            # Filtrar por confianza mínima manualmente
-            min_confidence = self.analyze_audio_use_case.min_confidence
-            filtered_detections = [
-                d for d in detections 
-                if d.confidence >= min_confidence
-            ]
-            
-            processing_time = time.time() - processing_start
-            
-            # Filtrar detecciones recientes para evitar duplicados
-            session = self.real_time_sessions.get(session_id)
-            if not session:
-                return  # Sesión fue cerrada durante procesamiento
-            
-            new_detections = self._filter_recent_detections(
-                filtered_detections, 
-                session['detection_history']
-            )
-            
-            # Actualizar estadísticas
-            session['total_detections'] += len(new_detections)
-            session['last_detection'] = time.time()
-            
-            # Guardar detecciones en MongoDB si hay nuevas detecciones
-            if new_detections:
-                for detection in new_detections:
-                    try:
-                        await mongodb_adapter.save_detection(session_id, {
-                            "species_name": detection.species_name,
-                            "species_code": detection.species_code,
-                            "confidence": detection.confidence,
-                            "start_time": detection.start_time,
-                            "end_time": detection.end_time,
-                            "chunk_timestamp": timestamp,
-                            "processing_time": processing_time,
-                            "chunk_sequence": session['total_chunks_received'],
-                            "is_new_species": detection.species_code not in [d.species_code for d in session['detection_history']]
-                        })
-                    except Exception as db_error:
-                        logger.warning(f"⚠️ Error guardando detección en DB: {db_error}")
-            
-            # Enviar resultado cuando termine
-            if new_detections:
-                await websocket.send_text(json.dumps({
-                    "type": "real_time_detections",
-                    "session_id": session_id,
-                    "analysis_timestamp": timestamp,
-                    "processing_time": round(processing_time, 2),
-                    "latency_info": f"Procesado en {processing_time:.1f}s",
-                    "birds": [
-                        {
-                            "species_name": d.species_name,
-                            "species_code": d.species_code,
-                            "confidence": round(d.confidence, 3),
-                            "start_time": d.start_time,
-                            "end_time": d.end_time,
-                            "detected_at": timestamp
-                        } for d in new_detections
-                    ]
-                }))
-                
-                # Guardar en historial
-                session['detection_history'].extend(new_detections)
-                
-                logger.info(f"Tiempo real - Sesión {session_id}: {len(new_detections)} nuevas detecciones en {processing_time:.1f}s")
-            
-            else:
-                # Notificar que se completó pero sin detecciones
-                await websocket.send_text(json.dumps({
-                    "type": "chunk_analyzed",
-                    "session_id": session_id,
-                    "analysis_timestamp": timestamp,
-                    "processing_time": round(processing_time, 2),
-                    "detections_count": 0,
-                    "message": f"Chunk analizado en {processing_time:.1f}s - sin detecciones"
-                }))
-                
-        except Exception as e:
-            logger.error(f"Error en análisis asíncrono de chunk {timestamp}: {e}")
-            try:
-                await websocket.send_text(json.dumps({
-                    "type": "analysis_error",
-                    "session_id": session_id,
-                    "timestamp": timestamp,
-                    "error": str(e)
-                }))
-            except:
-                pass  # WebSocket puede estar cerrado
-                
-        finally:
-            # Limpiar task completada
-            self.analysis_tasks.pop(timestamp, None)
-    
-    async def _handle_stop_real_time_listening(self, websocket: WebSocket, message: Dict[str, Any]):
-        """Finalizar sesión de tiempo real"""
-        try:
-            session_id = message.get("session_id")
-            
-            if session_id and session_id in self.real_time_sessions:
-                session = self.real_time_sessions[session_id]
-                
-                # Estadísticas finales
-                import time
-                duration = time.time() - session['created_at']
-                unique_species = len(set(d.species_code for d in session['detection_history']))
-                
-                # Finalizar sesión en MongoDB
-                session_summary = None
-                try:
-                    session_summary = await mongodb_adapter.end_session(session_id)
-                    logger.info(f"✅ Sesión MongoDB finalizada: {session_id}")
-                except Exception as db_error:
-                    logger.warning(f"⚠️ Error finalizando sesión en DB: {db_error}")
-                
-                # Limpiar sesión
-                del self.real_time_sessions[session_id]
-                
-                response_data = {
-                    "type": "real_time_session_ended",
-                    "session_id": session_id,
-                    "statistics": {
-                        "duration_seconds": round(duration, 1),
-                        "total_chunks_received": session['total_chunks_received'],
-                        "total_detections": session['total_detections'],
-                        "unique_species": unique_species
-                    },
-                    "message": "Sesión de tiempo real finalizada"
-                }
-                
-                # Agregar resumen de DB si está disponible
-                if session_summary:
-                    response_data["session_summary_available"] = True
-                    response_data["db_summary"] = {
-                        "total_detections": session_summary.get("total_detections", 0),
-                        "unique_species": session_summary.get("unique_species", 0),
-                        "duration_seconds": session_summary.get("duration_seconds", 0)
-                    }
-                
-                await websocket.send_text(json.dumps(response_data))
-                
-                logger.info(f"Sesión tiempo real finalizada: {session_id} ({duration:.1f}s, {session['total_detections']} detecciones)")
-            else:
-                await self._send_error(websocket, f"Sesión no encontrada: {session_id}")
-        
-        except Exception as e:
-            logger.error(f"Error finalizando tiempo real: {e}")
-            await self._send_error(websocket, f"Error finalizando tiempo real: {e}")
-    
-    def _filter_recent_detections(self, new_detections, history, time_window: float = 10.0):
-        """Filtrar detecciones que ya aparecieron recientemente"""
-        import time
-        
-        current_time = time.time()
-        filtered = []
-        
-        for detection in new_detections:
-            # Verificar si esta especie ya fue detectada recientemente
-            is_recent = any(
-                h.species_code == detection.species_code and 
-                (current_time - getattr(h, 'detected_at', 0)) < time_window
-                for h in history[-20:]  # Solo revisar últimas 20 detecciones
-            )
-            
-            if not is_recent:
-                # Agregar timestamp de detección
-                detection.detected_at = current_time
-                filtered.append(detection)
-        
-        return filtered
     
     async def _send_error(self, websocket: WebSocket, error_message: str):
         """Enviar mensaje de error"""

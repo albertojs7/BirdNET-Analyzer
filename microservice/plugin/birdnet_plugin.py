@@ -12,8 +12,8 @@ from typing import List, Dict, Optional, Union
 from dataclasses import dataclass
 from pathlib import Path
 
-# Agregar el directorio padre al path para importar birdnet_analyzer
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Agregar el directorio raíz de BirdNET al path (montado via Docker volume)
+sys.path.insert(0, '/birdnet_root')
 
 try:
     from birdnet_analyzer.analyze.core import analyze

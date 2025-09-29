@@ -6,12 +6,9 @@ import os
 from typing import List
 import logging
 
-# Agregar path al plugin
-plugin_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'plugin')
-sys.path.insert(0, os.path.abspath(plugin_path))
 
 try:
-    from birdnet_plugin import create_birdnet_plugin
+    from plugin.birdnet_plugin import create_birdnet_plugin
     PLUGIN_AVAILABLE = True
 except ImportError as e:
     PLUGIN_AVAILABLE = False
@@ -49,15 +46,20 @@ class BirdNetAdapter(AudioAnalyzerPort):
             raise Exception("Plugin BirdNET no disponible")
         
         try:
+            logger.info(f"Iniciando análisis de {filename} ({len(audio_data)} bytes)")
+            
             # Usar el plugin para análisis
             result = await self.plugin.analyze_audio_bytes(audio_data, filename)
             
             if not result.success:
+                logger.error(f"Error en análisis: {result.error_message}")
                 raise Exception(f"Error en análisis: {result.error_message}")
+            
+            logger.info(f"Plugin devolvió {len(result.detections)} detecciones brutas")
             
             # Convertir resultados del plugin a entidades de dominio
             detections = []
-            for detection in result.detections:
+            for i, detection in enumerate(result.detections):
                 bird_detection = BirdDetection(
                     species_name=detection.common_name,
                     species_code=detection.species_code,
@@ -66,6 +68,8 @@ class BirdNetAdapter(AudioAnalyzerPort):
                     end_time=detection.end_time
                 )
                 detections.append(bird_detection)
+                
+                logger.debug(f"Detección {i+1}: {detection.common_name} ({detection.confidence:.3f})")
             
             logger.info(f"Análisis completado: {len(detections)} detecciones encontradas")
             return detections
@@ -73,6 +77,39 @@ class BirdNetAdapter(AudioAnalyzerPort):
         except Exception as e:
             logger.error(f"Error en análisis BirdNET: {str(e)}")
             raise
+    
+    async def analyze_audio_window(self, audio_data: bytes, start_time: float, end_time: float) -> List[BirdDetection]:
+        """Analizar ventana específica de audio para streaming"""
+        if not self.plugin:
+            raise Exception("Plugin BirdNET no disponible")
+        
+        try:
+            # Para ventanas de streaming, usamos el mismo método pero con metadatos de tiempo
+            result = await self.plugin.analyze_audio_bytes(audio_data, f"stream_{start_time:.1f}-{end_time:.1f}.wav")
+            
+            if not result.success:
+                raise Exception(f"Error en análisis de ventana: {result.error_message}")
+            
+            # Convertir resultados y ajustar tiempos relativos a la ventana
+            detections = []
+            for detection in result.detections:
+                # Ajustar tiempos relativos al inicio de la ventana
+                bird_detection = BirdDetection(
+                    species_name=detection.common_name,
+                    species_code=detection.species_code,
+                    confidence=detection.confidence,
+                    start_time=start_time + detection.begin_time,  # Tiempo absoluto
+                    end_time=start_time + detection.end_time      # Tiempo absoluto
+                )
+                detections.append(bird_detection)
+            
+            logger.debug(f"Análisis ventana {start_time:.1f}-{end_time:.1f}s: {len(detections)} detecciones")
+            return detections
+            
+        except Exception as e:
+            logger.error(f"Error en análisis de ventana BirdNET: {str(e)}")
+            # No lanzar excepción para ventanas, devolver lista vacía
+            return []
     
     async def is_service_available(self) -> bool:
         """Verificar si el servicio está disponible"""

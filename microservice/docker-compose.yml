@@ -1,0 +1,61 @@
+services:
+  # Base de datos MongoDB
+  mongodb:
+    image: mongo:7.0
+    container_name: birdnet-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: birdnet123
+      MONGO_INITDB_DATABASE: birdnet_db
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongodb-init:/docker-entrypoint-initdb.d/
+    networks:
+      - birdnet-network
+
+  # Interfaz web para MongoDB
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: birdnet-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: birdnet123
+      ME_CONFIG_MONGODB_URL: mongodb://admin:birdnet123@mongodb:27017/
+      ME_CONFIG_BASICAUTH: false
+    depends_on:
+      - mongodb
+    networks:
+      - birdnet-network
+
+  # Microservicio BirdNET
+  birdnet-service:
+    build: .
+    container_name: birdnet-microservice
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://admin:birdnet123@mongodb:27017/birdnet_db?authSource=admin
+      - LOG_LEVEL=INFO
+      - PYTHONPATH=/birdnet_root:/app
+    depends_on:
+      - mongodb
+    networks:
+      - birdnet-network
+    volumes:
+      - ./temp:/tmp
+      - ../:/birdnet_root          # Todo el proyecto BirdNET
+      - ./:/app                    
+
+volumes:
+  mongodb_data:
+
+networks:
+  birdnet-network:
+    driver: bridge

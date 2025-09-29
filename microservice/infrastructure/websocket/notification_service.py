@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Set
 from fastapi import WebSocket
 
-from domain.entities import AudioAnalysis
+from domain.entities import AudioAnalysis, RealTimeDetection
 from domain.ports import NotificationPort
 
 logger = logging.getLogger(__name__)
@@ -19,18 +19,24 @@ class WebSocketNotificationService(NotificationPort):
         self._connections: Dict[str, WebSocket] = {}
         # Mantener conexiones generales
         self._general_connections: Set[WebSocket] = set()
+        # Mantener conexiones de streaming por session_id
+        self._streaming_connections: Dict[str, WebSocket] = {}
     
-    def register_connection(self, websocket: WebSocket, analysis_id: str = None):
+    def register_connection(self, websocket: WebSocket, analysis_id: str = None, session_id: str = None):
         """Registrar conexión WebSocket"""
         if analysis_id:
             self._connections[analysis_id] = websocket
+        elif session_id:
+            self._streaming_connections[session_id] = websocket
         else:
             self._general_connections.add(websocket)
     
-    def unregister_connection(self, websocket: WebSocket, analysis_id: str = None):
+    def unregister_connection(self, websocket: WebSocket, analysis_id: str = None, session_id: str = None):
         """Desregistrar conexión WebSocket"""
         if analysis_id and analysis_id in self._connections:
             del self._connections[analysis_id]
+        elif session_id and session_id in self._streaming_connections:
+            del self._streaming_connections[session_id]
         else:
             self._general_connections.discard(websocket)
     
@@ -100,6 +106,21 @@ class WebSocketNotificationService(NotificationPort):
         # Enviar a conexión específica si existe
         if analysis_id in self._connections:
             await self._send_message(self._connections[analysis_id], message)
+        
+        # Enviar a conexiones generales
+        for websocket in self._general_connections:
+            await self._send_message(websocket, message)
+    
+    async def notify_real_time_detection(self, detection: RealTimeDetection) -> None:
+        """Notificar detección en tiempo real"""
+        message = {
+            "type": "real_time_detection",
+            "detection": detection.to_dict()
+        }
+        
+        # Enviar a conexión específica de streaming si existe
+        if detection.session_id in self._streaming_connections:
+            await self._send_message(self._streaming_connections[detection.session_id], message)
         
         # Enviar a conexiones generales
         for websocket in self._general_connections:

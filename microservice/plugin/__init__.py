@@ -1,0 +1,1 @@
+# Plugin BirdNET para análisis de audio de aves

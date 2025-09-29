@@ -17,6 +17,7 @@ from config import Config
 from domain.entities import AudioAnalysis, BirdDetection, AnalysisStatus
 from domain.ports import AudioAnalyzerPort, AudioAnalysisRepository, NotificationPort
 from application.use_cases import AnalyzeAudioUseCase, GetAnalysisStatusUseCase, HealthCheckUseCase
+from application.streaming_use_cases import StreamingAnalysisUseCase, StreamingHealthCheckUseCase
 from infrastructure.adapters.birdnet_adapter import BirdNetAdapter
 from infrastructure.repositories.memory_repository import InMemoryAnalysisRepository
 from infrastructure.websocket.notification_service import WebSocketNotificationService
@@ -80,11 +81,26 @@ def setup_dependencies(config: Config):
         audio_analyzer=audio_analyzer
     )
     
+    # Casos de uso de streaming
+    streaming_analysis_use_case = StreamingAnalysisUseCase(
+        audio_analyzer=audio_analyzer,
+        notification_service=notification_service,
+        buffer_duration=5.0,  # 5 segundos de buffer
+        overlap_duration=1.0,  # 1 segundo de overlap
+        min_confidence=config.min_confidence
+    )
+    
+    streaming_health_check_use_case = StreamingHealthCheckUseCase(
+        streaming_use_case=streaming_analysis_use_case
+    )
+    
     # Controlador (Interface)
     websocket_controller = WebSocketController(
         analyze_audio_use_case=analyze_audio_use_case,
         get_analysis_status_use_case=get_analysis_status_use_case,
         health_check_use_case=health_check_use_case,
+        streaming_analysis_use_case=streaming_analysis_use_case,
+        streaming_health_check_use_case=streaming_health_check_use_case,
         notification_service=notification_service
     )
     
@@ -123,7 +139,12 @@ async def root():
         "websocket_commands": [
             "analyze_audio",
             "get_analysis_status",
-            "health_check"
+            "health_check",
+            "start_streaming",
+            "stream_audio_chunk",
+            "end_streaming",
+            "get_streaming_status",
+            "streaming_health_check"
         ]
     }
 
@@ -137,12 +158,25 @@ async def websocket_endpoint(websocket: WebSocket):
     """Endpoint WebSocket principal"""
     await websocket_controller.handle_connection(websocket)
 
+# Incluir API de sesiones
+from interfaces.sessions_api import router as sessions_router
+app.include_router(sessions_router)
+
 # Eventos de aplicación
 @app.on_event("startup")
 async def startup_event():
     """Evento de inicio de la aplicación"""
     logger.info("Iniciando microservicio BirdNET Analysis")
     logger.info(f"Configuración: {config}")
+    
+    # Conectar a MongoDB
+    try:
+        from infrastructure.database.mongodb_adapter import mongodb_adapter
+        await mongodb_adapter.connect()
+        logger.info("✅ MongoDB conectado exitosamente")
+    except Exception as e:
+        logger.warning(f"⚠️ MongoDB no disponible: {e}")
+        logger.info("🔄 Continuando sin persistencia de sesiones...")
     
     # Verificar disponibilidad del plugin
     health = await health_check_use_case.execute()
@@ -155,6 +189,13 @@ async def startup_event():
 async def shutdown_event():
     """Evento de cierre de la aplicación"""
     logger.info("Cerrando microservicio BirdNET Analysis")
+    
+    # Desconectar MongoDB
+    try:
+        from infrastructure.database.mongodb_adapter import mongodb_adapter
+        await mongodb_adapter.disconnect()
+    except Exception as e:
+        logger.warning(f"⚠️ Error desconectando MongoDB: {e}")
 
 # Punto de entrada
 if __name__ == "__main__":

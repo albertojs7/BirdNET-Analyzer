@@ -3,7 +3,7 @@ Puertos (interfaces) de dominio - Arquitectura Limpia
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from .entities import AudioAnalysis, BirdDetection
+from .entities import AudioAnalysis, BirdDetection, RealTimeDetection
 
 class AudioAnalyzerPort(ABC):
     """Puerto para análisis de audio de aves"""
@@ -11,6 +11,11 @@ class AudioAnalyzerPort(ABC):
     @abstractmethod
     async def analyze_audio(self, audio_data: bytes, filename: str) -> List[BirdDetection]:
         """Analizar audio y retornar detecciones"""
+        pass
+    
+    @abstractmethod
+    async def analyze_audio_window(self, audio_data: bytes, start_time: float, end_time: float) -> List[BirdDetection]:
+        """Analizar ventana específica de audio para streaming"""
         pass
     
     @abstractmethod
@@ -52,4 +57,9 @@ class NotificationPort(ABC):
     @abstractmethod
     async def notify_analysis_failed(self, analysis_id: str, error: str) -> None:
         """Notificar fallo en análisis"""
+        pass
+    
+    @abstractmethod
+    async def notify_real_time_detection(self, detection: RealTimeDetection) -> None:
+        """Notificar detección en tiempo real"""
         pass

@@ -1,6 +1,14 @@
 # Microservicio BirdNET con Arquitectura Limpia
 
-Microservicio FastAPI con WebSockets que implementa arquitectura limpia para análisis de aves.
+Microservicio FastAPI con WebSockets que implementa arquitectura limpia para análisis de aves con soporte para **análisis en tiempo real**.
+
+## ✨ Características
+
+- **Análisis tradicional**: Subir archivo completo y obtener resultados
+- **Análisis en tiempo real**: Stream de audio con detecciones instantáneas  
+- **WebSockets**: Comunicación bidireccional en tiempo real
+- **Arquitectura limpia**: Código organizado y mantenible
+- **Docker ready**: Configurado para contenedores
 
 ## Estructura del Proyecto
 
@@ -10,7 +18,8 @@ microservice/
 │   ├── entities.py            # Entidades de negocio
 │   └── ports.py               # Interfaces/Puertos
 ├── application/               # Capa de Aplicación  
-│   └── use_cases.py          # Casos de uso
+│   ├── use_cases.py          # Casos de uso tradicionales
+│   └── streaming_use_cases.py # Casos de uso para streaming
 ├── infrastructure/           # Capa de Infraestructura
 │   ├── adapters/
 │   │   └── birdnet_adapter.py # Adaptador BirdNET
@@ -22,7 +31,8 @@ microservice/
 │   └── websocket_controller.py # Controlador WebSocket
 ├── config.py                 # Configuración
 ├── main.py                   # Punto de entrada
-├── client_test.py           # Cliente de prueba
+├── client_test.py           # Cliente de prueba tradicional
+├── streaming_client_test.py # Cliente de prueba streaming
 └── README.md                # Este archivo
 ```
 
@@ -33,14 +43,20 @@ microservice/
 1. **Dominio (Entidades + Puertos)**
    - `BirdDetection`: Entidad para detecciones
    - `AudioAnalysis`: Agregado para análisis completo
+   - `AudioChunk`: Chunk de audio para streaming
+   - `StreamingSession`: Sesión de análisis en tiempo real
+   - `AudioBuffer`: Buffer deslizante para streaming
+   - `RealTimeDetection`: Detección con metadatos de tiempo real
    - `AudioAnalyzerPort`: Interface para análisis
    - `AudioAnalysisRepository`: Interface para persistencia
    - `NotificationPort`: Interface para notificaciones
 
 2. **Aplicación (Casos de Uso)**
-   - `AnalyzeAudioUseCase`: Análisis de audio
+   - `AnalyzeAudioUseCase`: Análisis de audio tradicional
    - `GetAnalysisStatusUseCase`: Consulta de estado
    - `HealthCheckUseCase`: Verificación de salud
+   - `StreamingAnalysisUseCase`: Análisis en tiempo real
+   - `StreamingHealthCheckUseCase`: Health check de streaming
 
 3. **Infraestructura (Adaptadores)**
    - `BirdNetAdapter`: Implementa análisis usando el plugin
@@ -76,8 +92,14 @@ El servicio estará disponible en:
 
 ### 2. Probar con Cliente
 
+**Análisis tradicional:**
 ```bash
 python client_test.py
+```
+
+**Análisis en tiempo real:**
+```bash
+python streaming_client_test.py
 ```
 
 ### 3. Variables de Entorno
@@ -113,7 +135,9 @@ ws.onmessage = (event) => {
 
 ### Comandos Disponibles
 
-#### 1. Analizar Audio
+#### Análisis Tradicional
+
+##### 1. Analizar Audio
 
 ```json
 {
@@ -154,7 +178,7 @@ ws.onmessage = (event) => {
 }
 ```
 
-#### 2. Consultar Estado
+##### 2. Consultar Estado
 
 ```json
 {
@@ -163,7 +187,7 @@ ws.onmessage = (event) => {
 }
 ```
 
-#### 3. Health Check
+##### 3. Health Check
 
 ```json
 {
@@ -171,7 +195,120 @@ ws.onmessage = (event) => {
 }
 ```
 
-## Integración en Expo/React Native
+#### Análisis en Tiempo Real
+
+##### 1. Iniciar Sesión de Streaming
+
+```json
+{
+    "type": "start_streaming"
+}
+```
+
+**Respuesta:**
+```json
+{
+    "type": "streaming_started",
+    "session_id": "uuid",
+    "message": "Sesión de streaming iniciada"
+}
+```
+
+##### 2. Enviar Chunk de Audio
+
+```json
+{
+    "type": "stream_audio_chunk",
+    "session_id": "uuid",
+    "audio": "base64_encoded_chunk",
+    "timestamp": 2.5,
+    "duration": 2.0,
+    "sequence": 1
+}
+```
+
+**Respuestas:**
+```json
+// Confirmación del chunk
+{
+    "type": "chunk_processed",
+    "session_id": "uuid",
+    "sequence": 1,
+    "detections_count": 2
+}
+
+// Detección en tiempo real
+{
+    "type": "real_time_detection",
+    "detection": {
+        "session_id": "uuid",
+        "chunk_timestamp": 2.5,
+        "detection_timestamp": "2025-09-23T10:30:45.123Z",
+        "is_new_species": true,
+        "species_name": "House Sparrow",
+        "species_code": "houspa",
+        "confidence": 0.85,
+        "start_time": 2.8,
+        "end_time": 4.2,
+        "duration": 1.4
+    }
+}
+```
+
+##### 3. Finalizar Streaming
+
+```json
+{
+    "type": "end_streaming",
+    "session_id": "uuid"
+}
+```
+
+**Respuesta:**
+```json
+{
+    "type": "streaming_ended",
+    "session_summary": {
+        "session_id": "uuid",
+        "duration": 45.2,
+        "total_chunks": 23,
+        "total_detections": 15,
+        "unique_species": 5,
+        "species_list": ["houspa", "amecro", "norcar"]
+    }
+}
+```
+
+##### 4. Estado de Streaming
+
+```json
+{
+    "type": "get_streaming_status",
+    "session_id": "uuid"
+}
+```
+
+##### 5. Health Check de Streaming
+
+```json
+{
+    "type": "streaming_health_check"
+}
+```
+
+## Integración con Front-end
+
+### Análisis Tradicional vs Tiempo Real
+
+#### Análisis Tradicional
+- ✅ **Mejor para**: Archivos completos, análisis detallado
+- ✅ **Ventajas**: Precisión máxima, análisis completo
+- ❌ **Desventajas**: Latencia alta, no interactivo
+
+#### Análisis en Tiempo Real  
+- ✅ **Mejor para**: Grabación en vivo, feedback inmediato
+- ✅ **Ventajas**: Latencia baja, experiencia interactiva
+- ❌ **Desventajas**: Uso más de recursos, mayor complejidad
 
 ### URLs para diferentes entornos:
 
@@ -201,6 +338,8 @@ import * as FileSystem from 'expo-file-system';
 const BirdAnalyzer = () => {
     const [ws, setWs] = useState(null);
     const [analysis, setAnalysis] = useState(null);
+    const [streamingSession, setStreamingSession] = useState(null);
+    const [realTimeDetections, setRealTimeDetections] = useState([]);
 
     const connectWebSocket = () => {
         const websocket = new WebSocket(getWebSocketUrl());
@@ -208,28 +347,41 @@ const BirdAnalyzer = () => {
         websocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             
-            if (data.type === 'analysis_completed') {
-                setAnalysis(data.result);
+            switch (data.type) {
+                case 'analysis_completed':
+                    setAnalysis(data.result);
+                    break;
+                    
+                case 'streaming_started':
+                    setStreamingSession(data.session_id);
+                    break;
+                    
+                case 'real_time_detection':
+                    setRealTimeDetections(prev => [...prev, data.detection]);
+                    break;
+                    
+                case 'streaming_ended':
+                    setStreamingSession(null);
+                    console.log('Resumen:', data.session_summary);
+                    break;
             }
         };
         
         setWs(websocket);
     };
 
+    // Análisis tradicional
     const analyzeAudio = async () => {
         try {
-            // Seleccionar archivo
             const result = await DocumentPicker.getDocumentAsync({
                 type: 'audio/*',
             });
 
             if (result.type === 'success') {
-                // Leer como Base64
                 const base64 = await FileSystem.readAsStringAsync(result.uri, {
                     encoding: 'base64',
                 });
 
-                // Enviar por WebSocket
                 ws.send(JSON.stringify({
                     type: 'analyze_audio',
                     audio: base64,
@@ -241,13 +393,61 @@ const BirdAnalyzer = () => {
         }
     };
 
+    // Streaming en tiempo real
+    const startStreaming = () => {
+        ws.send(JSON.stringify({
+            type: 'start_streaming'
+        }));
+    };
+
+    const sendAudioChunk = (audioChunk, timestamp, duration, sequence) => {
+        if (streamingSession) {
+            ws.send(JSON.stringify({
+                type: 'stream_audio_chunk',
+                session_id: streamingSession,
+                audio: audioChunk,
+                timestamp: timestamp,
+                duration: duration,
+                sequence: sequence
+            }));
+        }
+    };
+
+    const endStreaming = () => {
+        if (streamingSession) {
+            ws.send(JSON.stringify({
+                type: 'end_streaming',
+                session_id: streamingSession
+            }));
+        }
+    };
+
     return (
         <View>
             <Button title="Conectar" onPress={connectWebSocket} />
+            
+            {/* Análisis Tradicional */}
             <Button title="Analizar Audio" onPress={analyzeAudio} />
             {analysis && (
                 <Text>Detecciones: {analysis.total_detections}</Text>
             )}
+            
+            {/* Streaming */}
+            <Button title="Iniciar Streaming" onPress={startStreaming} />
+            <Button title="Terminar Streaming" onPress={endStreaming} />
+            
+            {/* Detecciones en tiempo real */}
+            <FlatList
+                data={realTimeDetections}
+                keyExtractor={(item, index) => index.toString()}
+                renderItem={({ item }) => (
+                    <View>
+                        <Text>{item.species_name}</Text>
+                        <Text>Confianza: {item.confidence.toFixed(2)}</Text>
+                        {item.is_new_species && <Text>🆕 Nueva especie!</Text>}
+                    </View>
+                )}
+            />
         </View>
     );
 };
@@ -260,15 +460,38 @@ const BirdAnalyzer = () => {
 3. **Flexible**: Fácil cambiar implementaciones (BD, notificaciones, etc.)
 4. **Escalable**: Arquitectura preparada para crecer
 5. **Mantenible**: Código organizado y fácil de entender
+6. **Tiempo Real**: Soporte nativo para análisis streaming
+7. **Docker Ready**: Configurado para contenedores
+
+## Análisis en Tiempo Real - Detalles Técnicos
+
+### Buffer Deslizante
+- **Tamaño del buffer**: 5 segundos configurable
+- **Overlap**: 1 segundo para evitar pérdida de detecciones
+- **Chunks**: Procesamiento de audio por ventanas temporales
+
+### Gestión de Sesiones
+- **Timeout automático**: Sesiones se limpian tras 5 minutos de inactividad
+- **Múltiples sesiones**: Soporte para varios usuarios simultáneos
+- **Estado persistente**: Seguimiento de especies detectadas por sesión
+
+### Notificaciones
+- **Detecciones inmediatas**: WebSocket push cuando se detecta ave
+- **Marcado de especies nuevas**: Indica si es primera vez en la sesión
+- **Metadatos temporales**: Timestamps precisos para cada detección
 
 ## Posibles Extensiones
 
 1. **Base de Datos**: Cambiar `InMemoryRepository` por PostgreSQL/MongoDB
-2. **Autenticación**: Agregar JWT/OAuth para WebSockets
+2. **Autenticación**: Agregar JWT/OAuth para WebSockets  
 3. **Rate Limiting**: Limitar análisis por usuario
 4. **Métricas**: Agregar Prometheus/Grafana
 5. **Caching**: Redis para resultados frecuentes
 6. **Queue**: Celery/RQ para análisis asíncronos
+7. **Audio Processing**: Mejores algoritmos de chunking para streaming
+8. **ML Optimization**: Optimizar BirdNET para tiempo real
+9. **Geographic Context**: Filtrar especies por ubicación
+10. **Real-time Visualization**: Dashboard en tiempo real
 
 ## Testing
 
@@ -276,6 +499,9 @@ const BirdAnalyzer = () => {
 # Tests unitarios (a implementar)
 pytest tests/
 
-# Test de integración
+# Test análisis tradicional
 python client_test.py
+
+# Test análisis en tiempo real
+python streaming_client_test.py
 ```
