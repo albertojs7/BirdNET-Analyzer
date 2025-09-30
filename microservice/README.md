@@ -1,316 +1,433 @@
-# Microservicio BirdNET con Arquitectura Limpia
+# BirdNET Microservice con MongoDB
 
-Microservicio FastAPI con WebSockets que implementa arquitectura limpia para análisis de aves con soporte para **análisis en tiempo real**.
+Microservicio FastAPI con WebSockets que implementa arquitectura limpia para análisis de aves con soporte para análisis en tiempo real y persistencia en base de datos NoSQL.
 
-## ✨ Características
+## Características
 
-- **Análisis tradicional**: Subir archivo completo y obtener resultados
-- **Análisis en tiempo real**: Stream de audio con detecciones instantáneas  
-- **WebSockets**: Comunicación bidireccional en tiempo real
-- **Arquitectura limpia**: Código organizado y mantenible
-- **Docker ready**: Configurado para contenedores
+- **Análisis en tiempo real**: Stream de audio con detecciones instantáneas usando WebSockets
+- **Persistencia MongoDB**: Almacenamiento de sesiones y detecciones en base de datos NoSQL
+- **API REST**: Endpoints para integración con otros microservicios (Pokedex)
+- **Arquitectura limpia**: Código organizado y mantenible siguiendo principios SOLID
+- **Docker Compose**: Orquestación completa con MongoDB, Mongo Express y microservicio
+- **Plugin BirdNET**: Integración real con modelos de análisis de aves
+
+## Inicio Rápido
+
+```bash
+# Clonar y navegar al directorio
+cd microservice/
+
+# Iniciar todo el sistema (MongoDB + BirdNET)
+./start.sh
+
+# Solo el microservicio (sin base de datos)
+./start.sh --no-mongodb
+
+# Reconstruir imágenes desde cero
+./start.sh --build
+```
+
+## Requisitos
+
+- **Docker** y **Docker Compose**
+- **Python 3.10+** (para desarrollo local)
+- **Puertos disponibles**: 8000, 27017, 8081
+
+## Servicios Disponibles
+
+- **BirdNET API**: http://localhost:8000
+- **BirdNET WebSocket**: ws://localhost:8000/ws
+- **MongoDB**: mongodb://localhost:27017
+- **Mongo Express UI**: http://localhost:8081
+  - Usuario: admin
+  - Contraseña: birdnet123
+
+## Arquitectura del Sistema
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Expo/React    │    │  Pokedex API    │    │   BirdNET API   │
+│   Mobile App    │    │  Microservice   │    │  Microservice   │
+│                 │    │                 │    │                 │
+│ • Audio capture │    │ • Species data  │    │ • Real-time     │
+│ • WebSocket     │◄──►│ • User profiles │◄──►│   analysis      │
+│ • Real-time UI  │    │ • Integration   │    │ • Session mgmt  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                │                        │
+                                ▼                        ▼
+                       ┌─────────────────┐    ┌─────────────────┐
+                       │  PostgreSQL/    │    │    MongoDB      │
+                       │   Local DB      │    │   (Sessions &   │
+                       │                 │    │   Detections)   │
+                       └─────────────────┘    └─────────────────┘
+```
+
+### Conexiones
+
+- **Comunicación HTTP/REST**: Para datos batch (resúmenes de sesiones)
+- **WebSocket directo**: Para tiempo real (Expo ↔ BirdNET)
 
 ## Estructura del Proyecto
 
 ```
 microservice/
-├── domain/                     # Capa de Dominio
-│   ├── entities.py            # Entidades de negocio
-│   └── ports.py               # Interfaces/Puertos
-├── application/               # Capa de Aplicación  
-│   ├── use_cases.py          # Casos de uso tradicionales
-│   └── streaming_use_cases.py # Casos de uso para streaming
+├── application/              # Capa de Aplicación
+├── domain/                   # Capa de Dominio
 ├── infrastructure/           # Capa de Infraestructura
-│   ├── adapters/
-│   │   └── birdnet_adapter.py # Adaptador BirdNET
-│   ├── repositories/
-│   │   └── memory_repository.py # Repositorio en memoria
-│   └── websocket/
-│       └── notification_service.py # Servicio WebSocket
-├── interfaces/               # Capa de Interfaces
-│   └── websocket_controller.py # Controlador WebSocket
-├── config.py                 # Configuración
-├── main.py                   # Punto de entrada
-├── client_test.py           # Cliente de prueba tradicional
-├── streaming_client_test.py # Cliente de prueba streaming
-└── README.md                # Este archivo
+│   ├── adapters/            # Adaptadores externos
+│   │   └── birdnet_adapter.py
+│   ├── database/            # Adaptadores de BD
+│   │   └── mongodb_adapter.py
+│   └── repositories/        # Repositorios
+├── interfaces/              # Capa de Interfaces
+│   ├── websocket_controller.py # WebSocket tiempo real
+│   └── sessions_api.py      # API REST para microservicios
+├── plugin/                  # Plugin BirdNET
+│   └── birdnet_plugin.py
+├── docker-compose.yml       # Orquestación Docker
+├── Dockerfile              # Imagen del microservicio
+├── requirements.txt        # Dependencias Python
+├── start.sh               # Script de inicio
+├── config.py              # Configuración
+├── main.py                # Punto de entrada
+├── simple_real_time_client.py # Cliente de prueba
+└── README.md              # Este archivo
 ```
 
-## Arquitectura Limpia
+## Base de Datos MongoDB
 
-### Capas de la Arquitectura
+### Servicios Docker
 
-1. **Dominio (Entidades + Puertos)**
-   - `BirdDetection`: Entidad para detecciones
-   - `AudioAnalysis`: Agregado para análisis completo
-   - `AudioChunk`: Chunk de audio para streaming
-   - `StreamingSession`: Sesión de análisis en tiempo real
-   - `AudioBuffer`: Buffer deslizante para streaming
-   - `RealTimeDetection`: Detección con metadatos de tiempo real
-   - `AudioAnalyzerPort`: Interface para análisis
-   - `AudioAnalysisRepository`: Interface para persistencia
-   - `NotificationPort`: Interface para notificaciones
-
-2. **Aplicación (Casos de Uso)**
-   - `AnalyzeAudioUseCase`: Análisis de audio tradicional
-   - `GetAnalysisStatusUseCase`: Consulta de estado
-   - `HealthCheckUseCase`: Verificación de salud
-   - `StreamingAnalysisUseCase`: Análisis en tiempo real
-   - `StreamingHealthCheckUseCase`: Health check de streaming
-
-3. **Infraestructura (Adaptadores)**
-   - `BirdNetAdapter`: Implementa análisis usando el plugin
-   - `InMemoryAnalysisRepository`: Persistencia en memoria
-   - `WebSocketNotificationService`: Notificaciones en tiempo real
-
-4. **Interfaces (Controladores)**
-   - `WebSocketController`: Maneja conexiones WebSocket
-
-## Instalación
-
-```bash
-# Instalar dependencias
-pip install fastapi uvicorn websockets
-
-# Opcional para cliente de prueba
-pip install websockets
+```yaml
+# docker-compose.yml
+services:
+  birdnet-service:      # Microservicio principal
+    ports: ["8000:8000"]
+    volumes:
+      - ../:/birdnet_root     # Todo el proyecto BirdNET
+      - ./:/app              # Código del microservicio (hot reload)
+    
+  mongodb:              # Base de datos NoSQL
+    ports: ["27017:27017"]
+    
+  mongo-express:        # UI para MongoDB
+    ports: ["8081:8081"]
 ```
 
-## Uso
-
-### 1. Ejecutar el Microservicio
+### Variables de Entorno
 
 ```bash
-cd microservice
-python main.py
-```
+# MongoDB
+MONGODB_URL=mongodb://admin:birdnet123@mongodb:27017/birdnet_db?authSource=admin
 
-El servicio estará disponible en:
-- WebSocket: `ws://localhost:8000/ws`
-- Health: `http://localhost:8000/health`
-- Docs: `http://localhost:8000/docs`
-
-### 2. Probar con Cliente
-
-**Análisis tradicional:**
-```bash
-python client_test.py
-```
-
-**Análisis en tiempo real:**
-```bash
-python streaming_client_test.py
-```
-
-### 3. Variables de Entorno
-
-```bash
-# .env
-HOST=0.0.0.0
-PORT=8000
-DEBUG=true
-MIN_CONFIDENCE=0.1
-MAX_FILE_SIZE=52428800
-TEMP_DIR=/tmp
-CLEANUP_TEMP_FILES=true
+# BirdNET
+PYTHONPATH=/birdnet_root:/app
 LOG_LEVEL=INFO
 ```
 
-## Protocolo WebSocket
+### Estructura de Documentos
 
-### Conexión
+**Colección: sessions**
+```json
+{
+  "_id": "ObjectId",
+  "session_id": "uuid-generado",
+  "status": "active|completed",
+  "created_at": "ISODate",
+  "ended_at": "ISODate",
+  "total_chunks": 150,
+  "total_detections": 25,
+  "unique_species": 8,
+  "metadata": {
+    "session_type": "real_time",
+    "client_info": {}
+  }
+}
+```
+
+**Colección: detections**
+```json
+{
+  "_id": "ObjectId",
+  "session_id": "uuid-de-sesion",
+  "species_name": "Northern Cardinal",
+  "species_code": "norcad",
+  "confidence": 0.89,
+  "start_time": 12.5,
+  "end_time": 15.2,
+  "detected_at": "ISODate",
+  "chunk_timestamp": 1672531200000,
+  "processing_info": {
+    "processing_time": 1.23,
+    "chunk_sequence": 45,
+    "is_new_species": true
+  }
+}
+```
+
+## API Endpoints
+
+### WebSocket (Tiempo Real)
 
 ```javascript
+// Conectar al WebSocket
 const ws = new WebSocket('ws://localhost:8000/ws');
 
-ws.onopen = () => {
-    console.log('Conectado');
-};
+// Iniciar sesión de tiempo real
+ws.send(JSON.stringify({
+    "type": "start_real_time_listening"
+}));
 
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('Recibido:', data);
-};
+// Enviar chunk de audio
+ws.send(JSON.stringify({
+    "type": "send_real_time_audio",
+    "session_id": "uuid-de-sesion",
+    "audio": "base64-encoded-audio",
+    "timestamp": Date.now()
+}));
+
+// Finalizar sesión
+ws.send(JSON.stringify({
+    "type": "stop_real_time_listening",
+    "session_id": "uuid-de-sesion"
+}));
 ```
 
-### Comandos Disponibles
+### REST API (Integración entre Microservicios)
 
-#### Análisis Tradicional
+```bash
+# Health check
+curl http://localhost:8000/health
 
-##### 1. Analizar Audio
+# Sesiones recientes (para Pokedex)
+curl http://localhost:8000/sessions/recent?limit=10
 
-```json
-{
-    "type": "analyze_audio",
-    "audio": "base64_encoded_audio_data",
-    "filename": "audio.mp3"
-}
+# Resumen de sesión específica
+curl http://localhost:8000/sessions/{session_id}/summary
+
+# Detecciones de una sesión
+curl http://localhost:8000/sessions/{session_id}/detections
+
+# Especies detectadas en una sesión
+curl http://localhost:8000/sessions/{session_id}/species
+
+# Marcar sesión como procesada
+curl -X POST http://localhost:8000/sessions/{session_id}/mark-processed
 ```
 
-**Respuestas:**
-```json
-// Análisis aceptado
-{
-    "type": "analysis_accepted",
-    "analysis_id": "uuid",
-    "message": "Análisis iniciado correctamente"
-}
+## Integración con Pokedex Microservice
 
-// Progreso
-{
-    "type": "analysis_progress", 
-    "analysis_id": "uuid",
-    "message": "Iniciando análisis de audio..."
-}
+### Flujo de Datos
 
-// Completado
-{
-    "type": "analysis_completed",
-    "analysis_id": "uuid",
-    "result": {
-        "analysis_id": "uuid",
-        "filename": "audio.mp3",
-        "status": "completed",
-        "total_detections": 3,
-        "detections": [...],
-        "processing_time": 2.5
-    }
-}
+1. **Usuario graba audio** en Expo app
+2. **Expo envía chunks** via WebSocket a BirdNET
+3. **BirdNET analiza** y guarda detecciones en MongoDB
+4. **BirdNET responde** con detecciones en tiempo real
+5. **Usuario termina sesión** en Expo
+6. **Pokedex consulta** resumen de sesión via REST API
+7. **Pokedex integra** datos con información local de especies
+
+## Testing
+
+### WebSocket (Tiempo Real)
+
+```bash
+# Test básico
+python3 simple_real_time_client.py
+
+# Test con latencia
+python3 real_time_test_client.py
 ```
 
-##### 2. Consultar Estado
+### API REST
 
-```json
-{
-    "type": "get_analysis_status",
-    "analysis_id": "uuid"
-}
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Sesiones recientes
+curl http://localhost:8000/sessions/recent
+
+# Estado de contenedores
+./start.sh --status
 ```
 
-##### 3. Health Check
+### MongoDB
 
-```json
-{
-    "type": "health_check"
-}
+```bash
+# Conectar a MongoDB directamente
+docker exec -it birdnet-mongodb mongosh -u admin -p birdnet123 --authenticationDatabase admin
+
+# Ver sesiones
+use birdnet_db
+db.sessions.find().limit(5)
+
+# Ver detecciones
+db.detections.find().limit(10)
 ```
 
-#### Análisis en Tiempo Real
+## Monitoreo
 
-##### 1. Iniciar Sesión de Streaming
+### Logs en Tiempo Real
 
-```json
-{
-    "type": "start_streaming"
-}
+```bash
+# Todos los servicios
+./start.sh --logs
+
+# Solo BirdNET
+./start.sh --logs birdnet-service
+
+# Solo MongoDB
+./start.sh --logs mongodb
 ```
 
-**Respuesta:**
-```json
-{
-    "type": "streaming_started",
-    "session_id": "uuid",
-    "message": "Sesión de streaming iniciada"
-}
+### Mongo Express UI
+
+- **URL**: http://localhost:8081
+- **Usuario**: admin
+- **Contraseña**: birdnet123
+
+### Métricas
+
+```bash
+# Estado de contenedores
+./start.sh --status
+
+# Uso de recursos
+docker stats
+
+# Conectividad
+curl http://localhost:8000/health
 ```
 
-##### 2. Enviar Chunk de Audio
+## Desarrollo
 
-```json
-{
-    "type": "stream_audio_chunk",
-    "session_id": "uuid",
-    "audio": "base64_encoded_chunk",
-    "timestamp": 2.5,
-    "duration": 2.0,
-    "sequence": 1
-}
+### Hot Reload para Desarrollo
+
+Los cambios en código Python se reflejan automáticamente en el contenedor gracias a los volúmenes Docker configurados:
+
+```bash
+# Para reflejar cambios
+docker compose restart birdnet-service
+
+# Ver logs en tiempo real
+./start.sh --logs birdnet-service
 ```
 
-**Respuestas:**
-```json
-// Confirmación del chunk
-{
-    "type": "chunk_processed",
-    "session_id": "uuid",
-    "sequence": 1,
-    "detections_count": 2
-}
+### Configuración Local (sin Docker)
 
-// Detección en tiempo real
-{
-    "type": "real_time_detection",
-    "detection": {
-        "session_id": "uuid",
-        "chunk_timestamp": 2.5,
-        "detection_timestamp": "2025-09-23T10:30:45.123Z",
-        "is_new_species": true,
-        "species_name": "House Sparrow",
-        "species_code": "houspa",
-        "confidence": 0.85,
-        "start_time": 2.8,
-        "end_time": 4.2,
-        "duration": 1.4
-    }
-}
+```bash
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Variables de entorno
+export MONGODB_URL="mongodb://admin:birdnet123@localhost:27017/birdnet_db?authSource=admin"
+export PYTHONPATH="/path/to/BirdNET-Analyzer"
+
+# Ejecutar sin Docker
+python main.py
 ```
 
-##### 3. Finalizar Streaming
+## Monitoreo
 
-```json
-{
-    "type": "end_streaming",
-    "session_id": "uuid"
-}
+### Logs en Tiempo Real
+
+```bash
+# Todos los servicios
+./start.sh --logs
+
+# Solo BirdNET
+./start.sh --logs birdnet-service
+
+# Solo MongoDB
+./start.sh --logs mongodb
 ```
 
-**Respuesta:**
-```json
-{
-    "type": "streaming_ended",
-    "session_summary": {
-        "session_id": "uuid",
-        "duration": 45.2,
-        "total_chunks": 23,
-        "total_detections": 15,
-        "unique_species": 5,
-        "species_list": ["houspa", "amecro", "norcar"]
-    }
-}
+### Métricas
+
+```bash
+# Estado de contenedores
+./start.sh --status
+
+# Uso de recursos
+docker stats
+
+# Conectividad
+curl http://localhost:8000/health
 ```
 
-##### 4. Estado de Streaming
+## Resolución de Problemas
 
-```json
-{
-    "type": "get_streaming_status",
-    "session_id": "uuid"
-}
+### Problemas Comunes
+
+**MongoDB no conecta**
+```bash
+# Verificar que el contenedor esté corriendo
+docker compose ps mongodb
+
+# Ver logs de MongoDB
+./start.sh --logs mongodb
+
+# Reiniciar solo MongoDB
+docker compose restart mongodb
 ```
 
-##### 5. Health Check de Streaming
+**Audio no se procesa**
+```bash
+# Verificar plugin BirdNET
+curl http://localhost:8000/health
 
-```json
-{
-    "type": "streaming_health_check"
-}
+# Ver logs del microservicio
+./start.sh --logs birdnet-service
 ```
 
-## Integración con Front-end
+**WebSocket desconecta**
+```bash
+# Verificar conexión
+python3 simple_real_time_client.py
 
-### Análisis Tradicional vs Tiempo Real
+# Verificar logs del servicio
+docker logs birdnet-microservice --tail=50
+```
 
-#### Análisis Tradicional
-- ✅ **Mejor para**: Archivos completos, análisis detallado
-- ✅ **Ventajas**: Precisión máxima, análisis completo
-- ❌ **Desventajas**: Latencia alta, no interactivo
+**Dependencias faltantes**
+```bash
+# Reconstruir imagen con nuevas dependencias
+./start.sh --build
 
-#### Análisis en Tiempo Real  
-- ✅ **Mejor para**: Grabación en vivo, feedback inmediato
-- ✅ **Ventajas**: Latencia baja, experiencia interactiva
-- ❌ **Desventajas**: Uso más de recursos, mayor complejidad
+# Verificar instalación en contenedor
+docker exec birdnet-microservice pip list
+```
 
-### URLs para diferentes entornos:
+### Logs Importantes
+
+```bash
+# Conexión MongoDB exitosa
+✅ MongoDB conectado exitosamente
+
+# Sesión creada
+✅ Sesión MongoDB creada: uuid-de-sesion
+
+# Detección guardada
+🐦 Detección guardada: Northern Cardinal en sesión uuid
+
+# Sesión finalizada
+🔚 Sesión finalizada: uuid (25 detecciones)
+```
+
+## Escalabilidad y Producción
+
+### Múltiples Instancias
+
+```bash
+# Escalar el microservicio
+docker compose up -d --scale birdnet-service=3
+
+# Con load balancer (nginx)
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### URLs para diferentes entornos
 
 ```javascript
 const getWebSocketUrl = () => {
@@ -324,184 +441,20 @@ const getWebSocketUrl = () => {
         return 'wss://tu-api.com/birdnet/ws'; // Producción
     }
 };
-
-// Para dispositivo físico en red local
-const WS_URL = 'ws://192.168.1.100:8000/ws';
 ```
 
-### Ejemplo de uso en React Native:
+## Referencias
 
-```javascript
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+- **BirdNET**: https://github.com/kahst/BirdNET-Analyzer
+- **FastAPI**: https://fastapi.tiangolo.com/
+- **MongoDB**: https://docs.mongodb.com/
+- **Docker Compose**: https://docs.docker.com/compose/
+- **Clean Architecture**: https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html
 
-const BirdAnalyzer = () => {
-    const [ws, setWs] = useState(null);
-    const [analysis, setAnalysis] = useState(null);
-    const [streamingSession, setStreamingSession] = useState(null);
-    const [realTimeDetections, setRealTimeDetections] = useState([]);
+---
 
-    const connectWebSocket = () => {
-        const websocket = new WebSocket(getWebSocketUrl());
-        
-        websocket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            
-            switch (data.type) {
-                case 'analysis_completed':
-                    setAnalysis(data.result);
-                    break;
-                    
-                case 'streaming_started':
-                    setStreamingSession(data.session_id);
-                    break;
-                    
-                case 'real_time_detection':
-                    setRealTimeDetections(prev => [...prev, data.detection]);
-                    break;
-                    
-                case 'streaming_ended':
-                    setStreamingSession(null);
-                    console.log('Resumen:', data.session_summary);
-                    break;
-            }
-        };
-        
-        setWs(websocket);
-    };
-
-    // Análisis tradicional
-    const analyzeAudio = async () => {
-        try {
-            const result = await DocumentPicker.getDocumentAsync({
-                type: 'audio/*',
-            });
-
-            if (result.type === 'success') {
-                const base64 = await FileSystem.readAsStringAsync(result.uri, {
-                    encoding: 'base64',
-                });
-
-                ws.send(JSON.stringify({
-                    type: 'analyze_audio',
-                    audio: base64,
-                    filename: result.name
-                }));
-            }
-        } catch (error) {
-            console.error('Error:', error);
-        }
-    };
-
-    // Streaming en tiempo real
-    const startStreaming = () => {
-        ws.send(JSON.stringify({
-            type: 'start_streaming'
-        }));
-    };
-
-    const sendAudioChunk = (audioChunk, timestamp, duration, sequence) => {
-        if (streamingSession) {
-            ws.send(JSON.stringify({
-                type: 'stream_audio_chunk',
-                session_id: streamingSession,
-                audio: audioChunk,
-                timestamp: timestamp,
-                duration: duration,
-                sequence: sequence
-            }));
-        }
-    };
-
-    const endStreaming = () => {
-        if (streamingSession) {
-            ws.send(JSON.stringify({
-                type: 'end_streaming',
-                session_id: streamingSession
-            }));
-        }
-    };
-
-    return (
-        <View>
-            <Button title="Conectar" onPress={connectWebSocket} />
-            
-            {/* Análisis Tradicional */}
-            <Button title="Analizar Audio" onPress={analyzeAudio} />
-            {analysis && (
-                <Text>Detecciones: {analysis.total_detections}</Text>
-            )}
-            
-            {/* Streaming */}
-            <Button title="Iniciar Streaming" onPress={startStreaming} />
-            <Button title="Terminar Streaming" onPress={endStreaming} />
-            
-            {/* Detecciones en tiempo real */}
-            <FlatList
-                data={realTimeDetections}
-                keyExtractor={(item, index) => index.toString()}
-                renderItem={({ item }) => (
-                    <View>
-                        <Text>{item.species_name}</Text>
-                        <Text>Confianza: {item.confidence.toFixed(2)}</Text>
-                        {item.is_new_species && <Text>🆕 Nueva especie!</Text>}
-                    </View>
-                )}
-            />
-        </View>
-    );
-};
-```
-
-## Ventajas de esta Arquitectura
-
-1. **Separación de Responsabilidades**: Cada capa tiene una responsabilidad específica
-2. **Testeable**: Fácil de crear tests unitarios para cada capa
-3. **Flexible**: Fácil cambiar implementaciones (BD, notificaciones, etc.)
-4. **Escalable**: Arquitectura preparada para crecer
-5. **Mantenible**: Código organizado y fácil de entender
-6. **Tiempo Real**: Soporte nativo para análisis streaming
-7. **Docker Ready**: Configurado para contenedores
-
-## Análisis en Tiempo Real - Detalles Técnicos
-
-### Buffer Deslizante
-- **Tamaño del buffer**: 5 segundos configurable
-- **Overlap**: 1 segundo para evitar pérdida de detecciones
-- **Chunks**: Procesamiento de audio por ventanas temporales
-
-### Gestión de Sesiones
-- **Timeout automático**: Sesiones se limpian tras 5 minutos de inactividad
-- **Múltiples sesiones**: Soporte para varios usuarios simultáneos
-- **Estado persistente**: Seguimiento de especies detectadas por sesión
-
-### Notificaciones
-- **Detecciones inmediatas**: WebSocket push cuando se detecta ave
-- **Marcado de especies nuevas**: Indica si es primera vez en la sesión
-- **Metadatos temporales**: Timestamps precisos para cada detección
-
-## Posibles Extensiones
-
-1. **Base de Datos**: Cambiar `InMemoryRepository` por PostgreSQL/MongoDB
-2. **Autenticación**: Agregar JWT/OAuth para WebSockets  
-3. **Rate Limiting**: Limitar análisis por usuario
-4. **Métricas**: Agregar Prometheus/Grafana
-5. **Caching**: Redis para resultados frecuentes
-6. **Queue**: Celery/RQ para análisis asíncronos
-7. **Audio Processing**: Mejores algoritmos de chunking para streaming
-8. **ML Optimization**: Optimizar BirdNET para tiempo real
-9. **Geographic Context**: Filtrar especies por ubicación
-10. **Real-time Visualization**: Dashboard en tiempo real
-
-## Testing
+**¿Listo para empezar?**
 
 ```bash
-# Tests unitarios (a implementar)
-pytest tests/
-
-# Test análisis tradicional
-python client_test.py
-
-# Test análisis en tiempo real
-python streaming_client_test.py
+./start.sh
 ```
