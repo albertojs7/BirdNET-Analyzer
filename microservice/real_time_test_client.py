@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Cliente de prueba para análisis en tiempo real
 Simula el comportamiento de una app móvil enviando chunks de audio cada 2 segundos
@@ -28,14 +27,14 @@ class RealTimeTestClient:
             # Consumir mensaje de bienvenida
             welcome = await self.websocket.recv()
             welcome_data = json.loads(welcome)
-            print(f"👋 {welcome_data['message']}")
-            print(f"📋 Comandos disponibles: {', '.join(welcome_data['available_commands'])}")
+            print(f"{welcome_data['message']}")
+            print(f"Comandos disponibles: {', '.join(welcome_data['available_commands'])}")
             
-            print("✅ Conectado al servidor WebSocket")
+            print("Conectado al servidor WebSocket")
             return True
             
         except Exception as e:
-            print(f"❌ Error conectando: {e}")
+            print(f"Error conectando: {e}")
             return False
     
     async def disconnect(self):
@@ -67,8 +66,8 @@ class RealTimeTestClient:
             self.session_id = response.get("session_id")
             config = response.get("config", {})
             
-            print(f"🎵 Sesión de tiempo real iniciada: {self.session_id}")
-            print(f"⚙️ Configuración recomendada:")
+            print(f"Sesión de tiempo real iniciada: {self.session_id}")
+            print(f"Configuración recomendada:")
             print(f"   - Duración chunk: {config.get('recommended_chunk_duration', 2.0)}s")
             print(f"   - Overlap: {config.get('recommended_overlap', 0.5)}s")
             print(f"   - Latencia esperada: {config.get('max_latency_expected', '2-5 segundos')}")
@@ -281,7 +280,7 @@ async def main():
         if await client.start_real_time_session():
             
             # 3. Simular audio en tiempo real
-            test_file = "/mnt/c/Users/victus R/Documents/BirdNET-Analyzer/prueba.mp3"
+            test_file = "/mnt/c/Users/victus R/Documents/BirdNET-Analyzer/prueba2.mp3"
             
             if os.path.exists(test_file):
                 await client.simulate_real_time_audio(

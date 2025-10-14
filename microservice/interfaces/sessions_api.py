@@ -1,5 +1,5 @@
 """
-API REST para resúmenes de sesiones - Para integración con Pokedex microservice
+API REST para resúmenes de sesiones
 """
 from datetime import datetime
 from typing import List, Dict, Any, Optional
