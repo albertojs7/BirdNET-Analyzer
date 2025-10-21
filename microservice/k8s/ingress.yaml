@@ -1,0 +1,73 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: birdnet-ingress
+  namespace: default
+  labels:
+    app: birdnet
+    component: ingress
+  annotations:
+    # Nginx Ingress Controller
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/websocket-services: birdnet-api-service
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    
+    # CORS (si lo necesitas)
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    
+    # Rate limiting (opcional)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    
+    # Certificado SSL/TLS (si usas cert-manager)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+spec:
+  # Clase de Ingress
+  ingressClassName: nginx
+  
+  # Reglas de enrutamiento
+  rules:
+  # Regla 1: API principal por dominio
+  - host: birdnet-api.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: birdnet-api-service
+            port:
+              number: 8000
+  
+  # Regla 2: API por subruta (alternativa sin dominio)
+  - host: api.example.com
+    http:
+      paths:
+      - path: /birdnet
+        pathType: Prefix
+        backend:
+          service:
+            name: birdnet-api-service
+            port:
+              number: 8000
+  
+  # Regla 3: Localhost para desarrollo
+  - host: localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: birdnet-api-service
+            port:
+              number: 8000
+  
+  # TLS/HTTPS (descomentar si tienes certificado)
+  # tls:
+  # - hosts:
+  #   - birdnet-api.example.com
+  #   - api.example.com
+  #   secretName: birdnet-tls-cert

@@ -229,7 +229,51 @@ curl -X POST http://localhost:8000/sessions/{session_id}/mark-processed
 
 ## Testing
 
-### WebSocket (Tiempo Real)
+### 🧪 Pruebas Unitarias
+
+La suite incluye **29 pruebas unitarias** organizadas en 4 niveles:
+
+#### Instalar dependencias
+```bash
+pip install pytest pytest-asyncio pytest-mock pytest-cov
+```
+
+#### Ejecutar pruebas
+```bash
+# Todas las pruebas
+./run_tests.sh all
+
+# O con pytest directamente
+pytest tests/ -v
+```
+
+#### Suites específicas
+```bash
+./run_tests.sh domain        # Pruebas de dominio (7 tests)
+./run_tests.sh app           # Pruebas de aplicación (6 tests)
+./run_tests.sh infra         # Pruebas de infraestructura (6 tests)
+./run_tests.sh integration   # Pruebas de integración (10 tests)
+```
+
+#### Con cobertura de código
+```bash
+./run_tests.sh coverage
+# Abre: htmlcov/index.html
+```
+
+#### Pruebas rápidas (sin integraciones lentas)
+```bash
+./run_tests.sh fast
+```
+
+#### En modo watch (ejecuta al guardar cambios)
+```bash
+./run_tests.sh watch
+```
+
+### 🧪 Pruebas Manuales
+
+#### WebSocket (Tiempo Real)
 
 ```bash
 # Test básico

@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: birdnet-api-service
+  namespace: default
+  labels:
+    app: birdnet
+    component: api
+  annotations:
+    description: "Servicio para exponer el API de BirdNET"
+spec:
+  type: ClusterIP
+  selector:
+    app: birdnet
+    component: api
+  
+  ports:
+  # Puerto HTTP/WebSocket principal
+  - name: http
+    protocol: TCP
+    port: 8000
+    targetPort: 8000
+  
+  # Configuración de sesiones
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
