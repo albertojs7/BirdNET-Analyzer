@@ -280,7 +280,7 @@ async def main():
         if await client.start_real_time_session():
             
             # 3. Simular audio en tiempo real
-            test_file = "/mnt/c/Users/victus R/Documents/BirdNET-Analyzer/prueba2.mp3"
+            test_file = "/mnt/c/Users/victus R/Documents/BirdNET-Analyzer/prueba.mp3"
             
             if os.path.exists(test_file):
                 await client.simulate_real_time_audio(

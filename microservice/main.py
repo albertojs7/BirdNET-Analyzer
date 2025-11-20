@@ -132,7 +132,7 @@ async def root():
         "version": "1.0.0",
         "description": "Microservicio para análisis de aves con arquitectura limpia",
         "endpoints": {
-            "websocket": "ws://localhost:8000/ws",
+            "websocket": "ws://localhost:8010/ws",
             "health": "/health",
             "docs": "/docs"
         },

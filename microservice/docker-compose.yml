@@ -39,7 +39,7 @@ services:
     container_name: birdnet-microservice
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8010:8010"
     environment:
       - MONGODB_URL=mongodb://admin:birdnet123@mongodb:27017/birdnet_db?authSource=admin
       - LOG_LEVEL=INFO
