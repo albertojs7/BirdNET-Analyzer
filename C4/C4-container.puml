@@ -1,0 +1,45 @@
+@startuml Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Arquitectura Diagrama de Contenedores
+
+Person(frontendUser, "Usuario", "Interactúa con la aplicación desde el navegador")
+
+Boundary(frontendZone, "Frontend") {
+    Container(frontend, "Frontend", "Web App", "Interfaz principal de usuario")
+}
+
+Boundary(gatewayZone, "Backend API Layer") {
+    Container(apiGateway, "API Gateway", "Backend", "Punto central de entrada para peticiones REST")
+}
+
+Boundary(servicesZone, "Microservicios") {
+    Container(users, "Users MS", "Microservice", "Gestión de usuarios")
+    Container(achievements, "Achievements MS", "Microservice", "Gestión de logros")
+    Container(mlworker, "MLWorker MS", "Microservice", "Inferencias ML/IA")
+    Container(sightings, "Sightings MS", "Microservice", "Avistamientos reportados")
+    Container(maps, "Maps MS", "Microservice", "Procesamiento de mapas")
+}
+
+Boundary(realtimeZone, "Procesamiento en Tiempo Real") {
+    Container(birdnet, "Birdnet-Microservice", "WebSocket Service", "Procesa audio y envía resultados en tiempo real")
+}
+
+Rel(frontendUser, frontend, "Usa")
+Rel(frontend, apiGateway, "Consume API REST")
+Rel(frontend, birdnet, "WebSocket en tiempo real", "WS")
+
+Rel(apiGateway, users, "Gestiona usuarios")
+Rel(apiGateway, achievements, "Gestiona logros")
+Rel(apiGateway, mlworker, "Procesa ML")
+Rel(apiGateway, sightings, "Gestiona avistamientos")
+Rel(apiGateway, maps, "Procesa mapas")
+
+' ▸ Relaciones internas
+Rel(mlworker, birdnet, "Procesa audio")
+Rel(mlworker, achievements, "Actualiza logros basados en ML")
+Rel(achievements, sightings, "Consulta avistamientos")
+
+@enduml

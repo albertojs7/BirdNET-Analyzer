@@ -257,6 +257,106 @@ class MongoDBAdapter:
         except Exception as e:
             logger.error(f"❌ Error obteniendo sesiones recientes: {e}")
             raise
+    
+    # ===== MÉTODOS PARA AudioAnalysisRepository =====
+    
+    async def save_analysis(self, analysis: 'AudioAnalysis') -> None:
+        """Guardar análisis de audio completo"""
+        try:
+            # Verificar conexión
+            if self.client is None or self.database is None:
+                logger.warning("⚠️ MongoDB no conectado, intentando conectar...")
+                await self.connect()
+            
+            # Crear colección si no existe
+            if not hasattr(self, 'analysis_collection') or self.analysis_collection is None:
+                self.analysis_collection = self.database.audio_analysis
+                await self.analysis_collection.create_index("analysis_id", unique=True)
+                await self.analysis_collection.create_index("created_at")
+            
+            # Convertir AudioAnalysis a documento MongoDB
+            analysis_doc = {
+                "analysis_id": analysis.analysis_id,
+                "filename": analysis.filename,
+                "status": analysis.status.value,
+                "detections": [
+                    {
+                        "species_name": d.species_name,
+                        "species_code": d.species_code,
+                        "confidence": d.confidence,
+                        "start_time": d.start_time,
+                        "end_time": d.end_time
+                    }
+                    for d in analysis.detections
+                ],
+                "created_at": analysis.created_at,
+                "completed_at": getattr(analysis, 'completed_at', None),
+                "processing_time": getattr(analysis, 'processing_time', None),
+                "error_message": getattr(analysis, 'error_message', None),
+                "metadata": getattr(analysis, 'metadata', {}) or {}
+            }
+            
+            # Usar upsert para actualizar o insertar
+            await self.analysis_collection.update_one(
+                {"analysis_id": analysis.analysis_id},
+                {"$set": analysis_doc},
+                upsert=True
+            )
+            
+            logger.debug(f"💾 Análisis guardado en MongoDB: {analysis.analysis_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error guardando análisis: {e}")
+            # No lanzar excepción para no interrumpir el flujo
+            logger.warning(f"⚠️ Continuando sin persistencia para análisis {analysis.analysis_id}")
+    
+    async def get_analysis_by_id(self, analysis_id: str) -> Optional['AudioAnalysis']:
+        """Obtener análisis por ID"""
+        try:
+            from domain.entities import AudioAnalysis, BirdDetection, AnalysisStatus
+            
+            # Verificar conexión
+            if self.client is None or self.database is None:
+                logger.warning("⚠️ MongoDB no conectado")
+                return None
+            
+            if not hasattr(self, 'analysis_collection') or self.analysis_collection is None:
+                self.analysis_collection = self.database.audio_analysis
+            
+            doc = await self.analysis_collection.find_one({"analysis_id": analysis_id})
+            
+            if not doc:
+                return None
+            
+            # Convertir documento MongoDB a AudioAnalysis
+            detections = [
+                BirdDetection(
+                    species_name=d["species_name"],
+                    species_code=d["species_code"],
+                    confidence=d["confidence"],
+                    start_time=d["start_time"],
+                    end_time=d["end_time"]
+                )
+                for d in doc.get("detections", [])
+            ]
+            
+            analysis = AudioAnalysis(
+                analysis_id=doc["analysis_id"],
+                filename=doc["filename"],
+                status=AnalysisStatus(doc["status"]),
+                detections=detections,
+                created_at=doc["created_at"],
+                completed_at=doc.get("completed_at"),
+                processing_time=doc.get("processing_time"),
+                error_message=doc.get("error_message"),
+                metadata=doc.get("metadata")
+            )
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo análisis: {e}")
+            return None
 
 # Instancia global
 mongodb_adapter = MongoDBAdapter()

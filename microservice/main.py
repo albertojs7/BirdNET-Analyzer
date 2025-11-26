@@ -20,6 +20,7 @@ from application.use_cases import AnalyzeAudioUseCase, GetAnalysisStatusUseCase,
 from application.streaming_use_cases import StreamingAnalysisUseCase, StreamingHealthCheckUseCase
 from infrastructure.adapters.birdnet_adapter import BirdNetAdapter
 from infrastructure.repositories.memory_repository import InMemoryAnalysisRepository
+from infrastructure.database.mongodb_adapter import MongoDBAdapter
 from infrastructure.websocket.notification_service import WebSocketNotificationService
 from interfaces.websocket_controller import WebSocketController
 
@@ -62,7 +63,7 @@ def setup_dependencies(config: Config):
         "temp_dir": config.temp_dir
     })
     
-    analysis_repository = InMemoryAnalysisRepository()
+    analysis_repository = MongoDBAdapter()
     notification_service = WebSocketNotificationService()
     
     # Casos de uso (Application)

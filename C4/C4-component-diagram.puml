@@ -1,0 +1,90 @@
+@startuml BirdNET Microservice - Component Diagram
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Component Diagram - BirdNET Analysis Microservice
+
+Person(user, "Usuario", "Usuario de la aplicación móvil")
+
+Container_Boundary(api, "BirdNET Microservice - FastAPI") {
+    
+    ' === Capa de Interfaces ===
+    Component(websocket_controller, "WebSocket Controller", "FastAPI WebSocket", "Maneja conexiones WebSocket y enruta comandos")
+    Component(sessions_api, "Sessions REST API", "FastAPI REST", "API REST para consultar sesiones e historial")
+    
+    ' === Capa de Aplicación (Casos de Uso) ===
+    Component(analyze_use_case, "Analyze Audio Use Case", "Application Layer", "Orquesta análisis de archivos completos")
+    Component(status_use_case, "Get Status Use Case", "Application Layer", "Consulta estado de análisis")
+    Component(health_use_case, "Health Check Use Case", "Application Layer", "Verifica salud del sistema")
+    
+    ' === Capa de Dominio ===
+    Component(domain_entities, "Domain Entities", "Domain", "AudioAnalysis, BirdDetection, RealTimeDetection, AnalysisStatus")
+    Component(domain_ports, "Domain Ports (Interfaces)", "Domain", "AudioAnalyzerPort, AudioAnalysisRepository, NotificationPort")
+    
+    ' === Capa de Infraestructura (Adaptadores) ===
+    Component(birdnet_adapter, "BirdNET Adapter", "Infrastructure", "Adaptador al plugin BirdNET, filtra nocall/human")
+    Component(mongodb_adapter, "MongoDB Adapter", "Infrastructure", "Persistencia de análisis y sesiones")
+    Component(websocket_notifier, "WebSocket Notifier", "Infrastructure", "Servicio de notificaciones push en tiempo real")
+}
+
+ContainerDb(mongodb, "MongoDB", "NoSQL Database", "Almacena análisis completos, sesiones de tiempo real y detecciones")
+Container(birdnet_plugin, "BirdNET Plugin", "Python TFLite", "Motor de análisis de aves usando redes neuronales")
+Container(mobile_app, "Mobile App", "React Native/Expo", "Aplicación móvil para grabar y analizar cantos de aves")
+
+' === Relaciones Usuario -> Mobile App ===
+Rel(user, mobile_app, "Usa", "HTTP/WebSocket")
+
+' === Relaciones Mobile App -> Microservicio ===
+Rel(mobile_app, websocket_controller, "Envía audio via WebSocket", "ws://host:8010/ws")
+Rel(mobile_app, sessions_api, "Consulta sesiones", "HTTP REST")
+
+' === Relaciones WebSocket Controller ===
+Rel(websocket_controller, analyze_use_case, "Ejecuta (analyze_audio)")
+Rel(websocket_controller, status_use_case, "Ejecuta (get_status)")
+Rel(websocket_controller, health_use_case, "Ejecuta (health_check)")
+Rel(websocket_controller, websocket_notifier, "Notifica resultados", "async")
+
+' === Relaciones Sessions API ===
+Rel(sessions_api, mongodb_adapter, "Consulta historial")
+
+' === Relaciones Analyze Audio Use Case ===
+Rel(analyze_use_case, birdnet_adapter, "Analiza audio completo")
+Rel(analyze_use_case, mongodb_adapter, "Guarda análisis")
+Rel(analyze_use_case, websocket_notifier, "Notifica progreso/resultado")
+
+' === Relaciones Status Use Case ===
+Rel(status_use_case, mongodb_adapter, "Consulta estado")
+
+' === Relaciones Health Use Case ===
+Rel(health_use_case, birdnet_adapter, "Verifica disponibilidad")
+
+' === Relaciones con Dominio ===
+Rel(analyze_use_case, domain_ports, "Usa interfaces")
+Rel(analyze_use_case, domain_entities, "Crea/usa")
+
+' === Implementación de Puertos ===
+Rel(birdnet_adapter, domain_ports, "Implementa AudioAnalyzerPort")
+Rel(mongodb_adapter, domain_ports, "Implementa AudioAnalysisRepository")
+Rel(websocket_notifier, domain_ports, "Implementa NotificationPort")
+
+' === Relaciones con Sistemas Externos ===
+Rel(birdnet_adapter, birdnet_plugin, "Llama para análisis", "Python API")
+Rel(mongodb_adapter, mongodb, "Lee/Escribe", "Motor async driver")
+
+' === Notas ===
+note right of analyze_use_case
+  **Comando:** analyze_audio
+  **Entrada:** Archivo completo
+  **Salida:** Lista de detecciones
+  **Persistencia:** MongoDB
+end note
+
+note right of birdnet_adapter
+  **Filtros aplicados:**
+  - Confianza mínima (0.1)
+  - Nocall
+  - Human voice/whistle
+end note
+
+@enduml
