@@ -60,9 +60,14 @@ class BirdNetAdapter(AudioAnalyzerPort):
             # Convertir resultados del plugin a entidades de dominio
             detections = []
             for i, detection in enumerate(result.detections):
-                # Filtrar detecciones "nocall"
-                if "nocall" in detection.species_code.lower() or "nocall" in detection.common_name.lower():
-                    logger.debug(f"Filtrando nocall: {detection.common_name}")
+                # Filtrar detecciones no deseadas
+                species_lower = detection.common_name.lower()
+                code_lower = detection.species_code.lower()
+                
+                if ("nocall" in code_lower or "nocall" in species_lower or
+                    "human" in species_lower or "human" in code_lower or
+                    "whistle" in species_lower or "voice" in species_lower):
+                    logger.debug(f"Filtrando: {detection.common_name}")
                     continue
                 
                 bird_detection = BirdDetection(
@@ -98,8 +103,13 @@ class BirdNetAdapter(AudioAnalyzerPort):
             # Convertir resultados y ajustar tiempos relativos a la ventana
             detections = []
             for detection in result.detections:
-                # Filtrar detecciones "nocall"
-                if "nocall" in detection.species_code.lower() or "nocall" in detection.common_name.lower():
+                # Filtrar detecciones no deseadas
+                species_lower = detection.common_name.lower()
+                code_lower = detection.species_code.lower()
+                
+                if ("nocall" in code_lower or "nocall" in species_lower or
+                    "human" in species_lower or "human" in code_lower or
+                    "whistle" in species_lower or "voice" in species_lower):
                     continue
                 
                 # Ajustar tiempos relativos al inicio de la ventana
